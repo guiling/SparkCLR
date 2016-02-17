@@ -19,6 +19,7 @@ using Microsoft.Spark.CSharp.Services;
 using Microsoft.Spark.CSharp.Sql;
 using Razorvine.Pickle;
 using Razorvine.Pickle.Objects;
+using System.Runtime.Serialization.Json;
 
 namespace Microsoft.Spark.CSharp
 {
@@ -36,27 +37,99 @@ namespace Microsoft.Spark.CSharp
 
         static void Main(string[] args)
         {
+            if (args.Length != 2)
+            {
+                Console.WriteLine("the length of args should be 2");
+                Environment.Exit(-1);
+                return;
+            }
+
+            string firstParamter = args[0].Trim();
+            if (!firstParamter.Equals("-port"))
+            {
+                Console.WriteLine("the first parameter of args should be -port");
+                Environment.Exit(-1);
+                return;
+            }
+
+            string strPort = args[1].Trim();
+            int portNumber = 0 ;
+            if (!int.TryParse(strPort, out portNumber))
+            {
+                Console.WriteLine("the second parameter of args should be an integer");
+                Environment.Exit(-1);
+                return;
+            }
+
+            Socket listenSocket = null;
+            Socket clientSocket = null;
+            SocketInformation sockInfo;
+            try
+            {
+                listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                listenSocket.Bind(new IPEndPoint(IPAddress.Loopback, portNumber));
+                listenSocket.Listen(5);
+                clientSocket = listenSocket.Accept();
+
+                // receive protocolinfo of the duplicated socket
+                byte[] recvBytes = new byte[10000];
+                int count = clientSocket.Receive(recvBytes);
+                sockInfo = new SocketInformation();
+
+                byte[] protocolInfo = new byte[count];
+                Array.Copy(recvBytes, protocolInfo, count);
+                sockInfo.ProtocolInformation = protocolInfo;
+                sockInfo.Options = SocketInformationOptions.Connected;
+
+            }
+            finally
+            {
+                if (clientSocket != null)
+                {
+                    clientSocket.Close();
+                }
+
+                if (listenSocket != null)
+                {
+                    listenSocket.Close();
+                }
+            }
+            
+            Socket socket = new Socket(sockInfo);
+            // Acknowledge that the fork was successful
+            using (NetworkStream s = new NetworkStream(socket))
+            {
+                SerDe.Write(s, Process.GetCurrentProcess().Id);
+            }
+
+            Run(socket);
+        }
+
+        public static void Run(Socket sock = null)
+        {
             // if there exists exe.config file, then use log4net
             if (File.Exists(AppDomain.CurrentDomain.SetupInformation.ConfigurationFile))
             {
                 LoggerServiceFactory.SetLoggerService(Log4NetLoggerService.Instance);
             }
-            logger = LoggerServiceFactory.GetLogger(typeof(Worker));
 
-            Socket sock = null;
-            try
+            logger = LoggerServiceFactory.GetLogger(typeof(Worker));
+            if (sock == null)
             {
-                PrintFiles();
-                int javaPort = int.Parse(Console.ReadLine());
-                logger.LogDebug("java_port: " + javaPort);
-                sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                sock.Connect(IPAddress.Loopback, javaPort);
-            }
-            catch (Exception e)
-            {
-                logger.LogError("CSharpWorker failed with exception:");
-                logger.LogException(e);
-                Environment.Exit(-1);
+                try
+                {
+                    PrintFiles();
+                    int javaPort = int.Parse(Console.ReadLine());
+                    logger.LogDebug("java_port: " + javaPort);
+                    sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    sock.Connect(IPAddress.Loopback, javaPort);
+                }
+                catch (Exception e)
+                {
+                    logger.LogError("CSharpWorker failed with exception:");
+                    logger.LogException(e);
+                    Environment.Exit(-1);
+                }
             }
 
             using (NetworkStream s = new NetworkStream(sock))

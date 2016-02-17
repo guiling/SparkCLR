@@ -67,11 +67,11 @@ then
 	exit 1
 fi
 echo "SparkCLR C# binaries"
-cp Worker/Microsoft.Spark.CSharp/bin/Release/* "$SPARKCLR_HOME/bin/"
+cp WorkerLauncher/Microsoft.Spark.CSharp/bin/Release/* "$SPARKCLR_HOME/bin/"
 
 echo "SparkCLR C# Samples binaries"
 # need to include CSharpWorker.exe.config in samples folder
-cp Worker/Microsoft.Spark.CSharp/bin/Release/* "$SPARKCLR_HOME/samples/"
+cp WorkerLauncher/Microsoft.Spark.CSharp/bin/Release/* "$SPARKCLR_HOME/samples/"
 cp Samples/Microsoft.Spark.CSharp/bin/Release/* "$SPARKCLR_HOME/samples/"
 
 echo "SparkCLR Samples data"

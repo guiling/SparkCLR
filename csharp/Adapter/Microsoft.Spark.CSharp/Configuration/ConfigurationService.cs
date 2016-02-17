@@ -21,8 +21,8 @@ namespace Microsoft.Spark.CSharp.Configuration
     /// </summary>
     internal class ConfigurationService : IConfigurationService
     {
-        public const string ProcFileName = "CSharpWorker.exe";
-        public const string CSharpWorkerPathSettingKey = "CSharpWorkerPath";
+        public const string ProcFileName = "CSharpWorkerLauncher.exe";
+        public const string CSharpLauncherWorkerPathSettingKey = "CSharpWorkerLauncherPath";
         public const string CSharpBackendPortNumberSettingKey = "CSharpBackendPortNumber";
         public const string SPARKCLR_HOME = "SPARKCLR_HOME";
         public const string SPARK_MASTER = "spark.master";
@@ -79,7 +79,7 @@ namespace Microsoft.Spark.CSharp.Configuration
 
         public string GetCSharpWorkerExePath()
         {
-            return configuration.GetCSharpWorkerExePath();
+            return configuration.GetCSharpWorkerLauncherExePath();
         }
 
         /// <summary>
@@ -116,7 +116,7 @@ namespace Microsoft.Spark.CSharp.Configuration
             /// <summary>
             /// The path of the CSharp external backend worker process.
             /// </summary>
-            internal virtual string GetCSharpWorkerExePath()
+            internal virtual string GetCSharpWorkerLauncherExePath()
             {
                 return ProcFileName;
             }
@@ -135,28 +135,28 @@ namespace Microsoft.Spark.CSharp.Configuration
             { }
 
             private string workerPath;
-            internal override string GetCSharpWorkerExePath()
+            internal override string GetCSharpWorkerLauncherExePath()
             {
                 // SparkCLR jar and driver, worker & dependencies are shipped using Spark file server. 
                 // These files are available in the Spark executing directory at executor node.
 
                 if (workerPath != null) return workerPath; // Return cached value
 
-                KeyValueConfigurationElement workerPathConfig = appSettings.Settings[CSharpWorkerPathSettingKey];
+                KeyValueConfigurationElement workerPathConfig = appSettings.Settings[CSharpLauncherWorkerPathSettingKey];
                 if (workerPathConfig == null)
                 {
-                    // Path for the CSharpWorker.exe was not specified in App.config
+                    // Path for the CSharpWorkerLauncher.exe was not specified in App.config
                     // Try to work out where location relative to this class.
                     // Construct path based on well-known file name + directory this class was loaded from.
                     string procDir = Path.GetDirectoryName(GetType().Assembly.Location);
                     workerPath = Path.Combine(procDir, ProcFileName);
-                    logger.LogDebug("Using synthesized value for CSharpWorkerPath : " + workerPath);
+                    logger.LogDebug("Using synthesized value for CSharpWorkerLauncherPath : " + workerPath);
                 }
                 else
                 {
-                    // Explicit path for the CSharpWorker.exe was listed in App.config
+                    // Explicit path for the CSharpWorkerLauncher.exe was listed in App.config
                     workerPath = workerPathConfig.Value;
-                    logger.LogDebug("Using CSharpWorkerPath value from App.config : " + workerPath);
+                    logger.LogDebug("Using CSharpWorkerLauncherPath value from App.config : " + workerPath);
                 }
                 return workerPath;
             }
@@ -187,9 +187,9 @@ namespace Microsoft.Spark.CSharp.Configuration
             /// <summary>
             /// The full path of the CSharp external backend worker process.
             /// </summary>
-            internal override string GetCSharpWorkerExePath()
+            internal override string GetCSharpWorkerLauncherExePath()
             {
-                KeyValueConfigurationElement workerPathConfig = appSettings.Settings[CSharpWorkerPathSettingKey];
+                KeyValueConfigurationElement workerPathConfig = appSettings.Settings[CSharpLauncherWorkerPathSettingKey];
                 if (workerPathConfig != null)
                 {
                     return workerPathConfig.Value;
