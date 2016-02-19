@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using Microsoft.Spark.CSharp.Interop.Ipc;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -26,12 +27,20 @@ namespace Microsoft.Spark.CSharp
             listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             listenSocket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
             listenSocket.Listen(Math.Max(1024, int.MaxValue));
-            Console.Write(0);
+
+            byte[] bytes = BitConverter.GetBytes(((IPEndPoint)listenSocket.LocalEndPoint).Port);
+            byte[] newBytes = new byte[4];
+            for (int i = 3; i >= 0; i--)
+            {
+                newBytes[3 - i] = bytes[i];
+            }
+
+            Console.OpenStandardOutput().Write(newBytes, 0, 4);
         }
 
         public static void Run() 
         {
-            Task<string> readConsoleTask = ReadConsoleAsync();
+            Task<int> readConsoleTask = ReadConsoleAsync();
 
             while (true)
             {
@@ -46,7 +55,7 @@ namespace Microsoft.Spark.CSharp
                     {
                         try
                         {
-                            int workerPid = int.Parse(readConsoleTask.Result);
+                            int workerPid = readConsoleTask.Result;
                             Process workerProcess = Process.GetProcessById(workerPid);
                             workerProcess.Kill();
                             workerProcess.WaitForExit();
@@ -60,23 +69,21 @@ namespace Microsoft.Spark.CSharp
                     if (listenList.Count > 0)
                     {
                         Socket socket = listenList[0].Accept();
+                       
                         Process process = new Process();
                         process.StartInfo.UseShellExecute = false;
-                        process.StartInfo.FileName = "CSharpWorker.exe";
+                        string procDir = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetEntryAssembly().Location);
+                        process.StartInfo.FileName = Path.Combine(procDir, "CSharpWorker.exe");
                         process.StartInfo.Arguments = string.Format("-port {0}", portNumber);
                         process.Start();
-                        SocketInformation socketInfo = socket.DuplicateAndClose(process.Id);
+
+                        SocketInformation sockectInfo = socket.DuplicateAndClose(process.Id);
 
                         Socket transPortSock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
                         transPortSock.Connect(IPAddress.Loopback, portNumber);
-                        using (MemoryStream stream = new MemoryStream())
-                        {
-                            IFormatter formatter = new BinaryFormatter();
-                            formatter.Serialize(stream, socketInfo);
-                            transPortSock.Send(stream.ToArray());
-                        }
-                        
+                        transPortSock.Send(sockectInfo.ProtocolInformation);
                         transPortSock.Close();
+
                         portNumber++;
                     }
                 }
@@ -88,9 +95,9 @@ namespace Microsoft.Spark.CSharp
             }
         }
 
-        public static Task<string> ReadConsoleAsync()
+        public static Task<int> ReadConsoleAsync()
         {
-            return Task.Run(() => Console.ReadLine());
+            return Task.Run(() => SerDe.ReadInt(Console.OpenStandardInput()));
         }
     }
 }

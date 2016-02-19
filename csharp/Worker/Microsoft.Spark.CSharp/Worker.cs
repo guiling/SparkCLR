@@ -34,7 +34,7 @@ namespace Microsoft.Spark.CSharp
     {
         private static readonly DateTime UnixTimeEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         private static ILoggerService logger;
-
+       
         static void Main(string[] args)
         {
             if (args.Length != 2)
@@ -63,7 +63,7 @@ namespace Microsoft.Spark.CSharp
 
             Socket listenSocket = null;
             Socket clientSocket = null;
-            SocketInformation sockInfo;
+            SocketInformation socketInfo;
             try
             {
                 listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
@@ -74,13 +74,12 @@ namespace Microsoft.Spark.CSharp
                 // receive protocolinfo of the duplicated socket
                 byte[] recvBytes = new byte[10000];
                 int count = clientSocket.Receive(recvBytes);
-                sockInfo = new SocketInformation();
+                socketInfo = new SocketInformation();
 
                 byte[] protocolInfo = new byte[count];
                 Array.Copy(recvBytes, protocolInfo, count);
-                sockInfo.ProtocolInformation = protocolInfo;
-                sockInfo.Options = SocketInformationOptions.Connected;
-
+                socketInfo.ProtocolInformation = protocolInfo;
+                socketInfo.Options = SocketInformationOptions.Connected;
             }
             finally
             {
@@ -94,8 +93,8 @@ namespace Microsoft.Spark.CSharp
                     listenSocket.Close();
                 }
             }
-            
-            Socket socket = new Socket(sockInfo);
+         
+            Socket socket = new Socket(socketInfo);
             // Acknowledge that the fork was successful
             using (NetworkStream s = new NetworkStream(socket))
             {
