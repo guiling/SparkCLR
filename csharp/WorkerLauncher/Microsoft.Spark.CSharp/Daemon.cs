@@ -26,7 +26,6 @@ namespace Microsoft.Spark.CSharp
             listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             listenSocket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
             listenSocket.Listen(Math.Max(1024, int.MaxValue));
-
             Console.WriteLine(((IPEndPoint)listenSocket.LocalEndPoint).Port);
         }
 
