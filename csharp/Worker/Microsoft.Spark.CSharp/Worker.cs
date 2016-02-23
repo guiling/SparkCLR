@@ -70,12 +70,16 @@ namespace Microsoft.Spark.CSharp
                 listenSocket.Bind(new IPEndPoint(IPAddress.Loopback, portNumber));
                 listenSocket.Listen(5);
                 clientSocket = listenSocket.Accept();
-
+              
                 // receive protocolinfo of the duplicated socket
                 byte[] recvBytes = new byte[10000];
-                int count = clientSocket.Receive(recvBytes);
+                int count = 0;
+                using (NetworkStream s = new NetworkStream(clientSocket))
+                {
+                    count = s.Read(recvBytes, 0, 10000);
+                }
+                
                 socketInfo = new SocketInformation();
-
                 byte[] protocolInfo = new byte[count];
                 Array.Copy(recvBytes, protocolInfo, count);
                 socketInfo.ProtocolInformation = protocolInfo;

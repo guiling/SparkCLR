@@ -27,15 +27,7 @@ namespace Microsoft.Spark.CSharp
             listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             listenSocket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
             listenSocket.Listen(Math.Max(1024, int.MaxValue));
-
-            byte[] bytes = BitConverter.GetBytes(((IPEndPoint)listenSocket.LocalEndPoint).Port);
-            byte[] newBytes = new byte[4];
-            for (int i = 3; i >= 0; i--)
-            {
-                newBytes[3 - i] = bytes[i];
-            }
-
-            Console.OpenStandardOutput().Write(newBytes, 0, 4);
+            SerDe.Write(Console.OpenStandardOutput(), ((IPEndPoint)listenSocket.LocalEndPoint).Port);
         }
 
         public static void Run() 
@@ -69,7 +61,7 @@ namespace Microsoft.Spark.CSharp
                     if (listenList.Count > 0)
                     {
                         Socket socket = listenList[0].Accept();
-                       
+
                         Process process = new Process();
                         process.StartInfo.UseShellExecute = false;
                         string procDir = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetEntryAssembly().Location);
@@ -80,8 +72,13 @@ namespace Microsoft.Spark.CSharp
                         SocketInformation sockectInfo = socket.DuplicateAndClose(process.Id);
 
                         Socket transPortSock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
                         transPortSock.Connect(IPAddress.Loopback, portNumber);
-                        transPortSock.Send(sockectInfo.ProtocolInformation);
+                        using (NetworkStream s = new NetworkStream(transPortSock))
+                        {
+                            SerDe.Write(s, sockectInfo.ProtocolInformation);
+                        }
+                        
                         transPortSock.Close();
 
                         portNumber++;
