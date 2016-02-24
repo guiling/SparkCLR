@@ -20,6 +20,7 @@ using Microsoft.Spark.CSharp.Sql;
 using Razorvine.Pickle;
 using Razorvine.Pickle.Objects;
 using System.Runtime.Serialization.Json;
+using Mono.Unix;
 
 namespace Microsoft.Spark.CSharp
 {
@@ -97,18 +98,26 @@ namespace Microsoft.Spark.CSharp
                     listenSocket.Close();
                 }
             }
-         
-            Socket socket = new Socket(socketInfo);
-            // Acknowledge that the fork was successful
-            using (NetworkStream s = new NetworkStream(socket))
-            {
-                SerDe.Write(s, Process.GetCurrentProcess().Id);
-            }
 
-            Run(socket);
+            try
+            {
+                Socket socket = new Socket(socketInfo);
+                // Acknowledge that the fork was successful
+                using (UnixStream s = new UnixStream((int)socket.Handle))
+                {
+                    SerDe.Write(s, Process.GetCurrentProcess().Id);
+                    DoExecute(s);
+                }
+            }
+            catch (Exception e)
+            {
+                StreamWriter w = new StreamWriter(@"D:\a.txt");
+                w.Write(e.ToString());
+                w.Close();
+            }
         }
 
-        public static void Run(Socket sock = null)
+        public static void Run()
         {
             // if there exists exe.config file, then use log4net
             if (File.Exists(AppDomain.CurrentDomain.SetupInformation.ConfigurationFile))
@@ -117,271 +126,280 @@ namespace Microsoft.Spark.CSharp
             }
 
             logger = LoggerServiceFactory.GetLogger(typeof(Worker));
-            if (sock == null)
+            Socket sock = null;
+            try
             {
-                try
+                PrintFiles();
+                int javaPort = int.Parse(Console.ReadLine());
+                logger.LogDebug("java_port: " + javaPort);
+                sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                sock.Connect(IPAddress.Loopback, javaPort);
+
+                using (NetworkStream s = new NetworkStream(sock))
                 {
-                    PrintFiles();
-                    int javaPort = int.Parse(Console.ReadLine());
-                    logger.LogDebug("java_port: " + javaPort);
-                    sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                    sock.Connect(IPAddress.Loopback, javaPort);
+                    DoExecute(s);
                 }
-                catch (Exception e)
+
+            }
+            catch (Exception e)
+            {
+                logger.LogError("CSharpWorker failed with exception:");
+                logger.LogException(e);
+                Environment.Exit(-1);
+            }
+            finally
+            {
+                if (sock != null)
                 {
-                    logger.LogError("CSharpWorker failed with exception:");
-                    logger.LogException(e);
-                    Environment.Exit(-1);
+                    sock.Close();
                 }
             }
+        }
 
-            using (NetworkStream s = new NetworkStream(sock))
+        private static void DoExecute(Stream s)
+        {
+            try
             {
-                try
+                DateTime bootTime = DateTime.UtcNow;
+
+                int splitIndex = SerDe.ReadInt(s);
+                logger.LogDebug("split_index: " + splitIndex);
+                if (splitIndex == -1)
+                    Environment.Exit(-1);
+
+                string ver = SerDe.ReadString(s);
+                logger.LogDebug("ver: " + ver);
+
+                //// initialize global state
+                //shuffle.MemoryBytesSpilled = 0
+                //shuffle.DiskBytesSpilled = 0
+
+                // fetch name of workdir
+                string sparkFilesDir = SerDe.ReadString(s);
+                logger.LogDebug("spark_files_dir: " + sparkFilesDir);
+                //SparkFiles._root_directory = sparkFilesDir
+                //SparkFiles._is_running_on_worker = True
+
+                // fetch names of includes - not used //TODO - complete the impl
+                int numberOfIncludesItems = SerDe.ReadInt(s);
+                logger.LogDebug("num_includes: " + numberOfIncludesItems);
+
+                if (numberOfIncludesItems > 0)
                 {
-                    DateTime bootTime = DateTime.UtcNow;
-
-                    int splitIndex = SerDe.ReadInt(s);
-                    logger.LogDebug("split_index: " + splitIndex);
-                    if (splitIndex == -1)
-                        Environment.Exit(-1);
-
-                    string ver = SerDe.ReadString(s);
-                    logger.LogDebug("ver: " + ver);
-
-                    //// initialize global state
-                    //shuffle.MemoryBytesSpilled = 0
-                    //shuffle.DiskBytesSpilled = 0
-
-                    // fetch name of workdir
-                    string sparkFilesDir = SerDe.ReadString(s);
-                    logger.LogDebug("spark_files_dir: " + sparkFilesDir);
-                    //SparkFiles._root_directory = sparkFilesDir
-                    //SparkFiles._is_running_on_worker = True
-
-                    // fetch names of includes - not used //TODO - complete the impl
-                    int numberOfIncludesItems = SerDe.ReadInt(s);
-                    logger.LogDebug("num_includes: " + numberOfIncludesItems);
-
-                    if (numberOfIncludesItems > 0)
+                    for (int i = 0; i < numberOfIncludesItems; i++)
                     {
-                        for (int i = 0; i < numberOfIncludesItems; i++)
+                        string filename = SerDe.ReadString(s);
+                    }
+                }
+
+                // fetch names and values of broadcast variables
+                int numBroadcastVariables = SerDe.ReadInt(s);
+                logger.LogDebug("num_broadcast_variables: " + numBroadcastVariables);
+
+                if (numBroadcastVariables > 0)
+                {
+                    for (int i = 0; i < numBroadcastVariables; i++)
+                    {
+                        long bid = SerDe.ReadLong(s);
+                        if (bid >= 0)
                         {
-                            string filename = SerDe.ReadString(s);
+                            string path = SerDe.ReadString(s);
+                            Broadcast.broadcastRegistry[bid] = new Broadcast(path);
+                        }
+                        else
+                        {
+                            bid = -bid - 1;
+                            Broadcast.broadcastRegistry.Remove(bid);
                         }
                     }
+                }
 
-                    // fetch names and values of broadcast variables
-                    int numBroadcastVariables = SerDe.ReadInt(s);
-                    logger.LogDebug("num_broadcast_variables: " + numBroadcastVariables);
+                Accumulator.accumulatorRegistry.Clear();
 
-                    if (numBroadcastVariables > 0)
+                int lengthOfCommandByteArray = SerDe.ReadInt(s);
+                logger.LogDebug("command length: " + lengthOfCommandByteArray);
+
+                IFormatter formatter = new BinaryFormatter();
+
+                if (lengthOfCommandByteArray > 0)
+                {
+                    Stopwatch commandProcessWatch = new Stopwatch();
+                    Stopwatch funcProcessWatch = new Stopwatch();
+                    commandProcessWatch.Start();
+
+                    int rddId = SerDe.ReadInt(s);
+                    int stageId = SerDe.ReadInt(s);
+                    int partitionId = SerDe.ReadInt(s);
+                    logger.LogInfo(string.Format("rddInfo: rddId {0}, stageId {1}, partitionId {2}", rddId, stageId, partitionId));
+
+                    string deserializerMode = SerDe.ReadString(s);
+                    logger.LogDebug("Deserializer mode: " + deserializerMode);
+
+                    string serializerMode = SerDe.ReadString(s);
+                    logger.LogDebug("Serializer mode: " + serializerMode);
+
+                    byte[] command = SerDe.ReadBytes(s);
+
+                    logger.LogDebug("command bytes read: " + command.Length);
+                    var stream = new MemoryStream(command);
+
+                    var workerFunc = (CSharpWorkerFunc)formatter.Deserialize(stream);
+                    var func = workerFunc.Func;
+                    logger.LogDebug(string.Format("stack trace of workerFunc (dont't panic, this is just for debug):\n{0}", workerFunc.StackTrace));
+                    DateTime initTime = DateTime.UtcNow;
+                    int count = 0;
+
+                    // here we use low level API because we need to get perf metrics
+                    WorkerInputEnumerator inputEnumerator = new WorkerInputEnumerator(s, deserializerMode);
+                    IEnumerable<dynamic> inputEnumerable = Enumerable.Cast<dynamic>(inputEnumerator);
+                    funcProcessWatch.Start();
+                    IEnumerable<dynamic> outputEnumerable = func(splitIndex, inputEnumerable);
+                    var outputEnumerator = outputEnumerable.GetEnumerator();
+                    funcProcessWatch.Stop();
+                    while (true)
                     {
-                        for (int i = 0; i < numBroadcastVariables; i++)
-                        {
-                            long bid = SerDe.ReadLong(s);
-                            if (bid >= 0)
-                            {
-                                string path = SerDe.ReadString(s);
-                                Broadcast.broadcastRegistry[bid] = new Broadcast(path);
-                            }
-                            else
-                            {
-                                bid = -bid - 1;
-                                Broadcast.broadcastRegistry.Remove(bid);
-                            }
-                        }
-                    }
-
-                    Accumulator.accumulatorRegistry.Clear();
-
-                    int lengthOfCommandByteArray = SerDe.ReadInt(s);
-                    logger.LogDebug("command length: " + lengthOfCommandByteArray);
-
-                    IFormatter formatter = new BinaryFormatter();
-
-                    if (lengthOfCommandByteArray > 0)
-                    {
-                        Stopwatch commandProcessWatch = new Stopwatch();
-                        Stopwatch funcProcessWatch = new Stopwatch();
-                        commandProcessWatch.Start();
-
-                        int rddId = SerDe.ReadInt(s);
-                        int stageId = SerDe.ReadInt(s);
-                        int partitionId = SerDe.ReadInt(s);
-                        logger.LogInfo(string.Format("rddInfo: rddId {0}, stageId {1}, partitionId {2}", rddId, stageId, partitionId));
-
-                        string deserializerMode = SerDe.ReadString(s);
-                        logger.LogDebug("Deserializer mode: " + deserializerMode);
-
-                        string serializerMode = SerDe.ReadString(s);
-                        logger.LogDebug("Serializer mode: " + serializerMode);
-
-                        byte[] command = SerDe.ReadBytes(s);
-
-                        logger.LogDebug("command bytes read: " + command.Length);
-                        var stream = new MemoryStream(command);
-
-                        var workerFunc = (CSharpWorkerFunc)formatter.Deserialize(stream);
-                        var func = workerFunc.Func;
-                        logger.LogDebug(string.Format("stack trace of workerFunc (dont't panic, this is just for debug):\n{0}", workerFunc.StackTrace));
-                        DateTime initTime = DateTime.UtcNow;
-                        int count = 0;
-
-                        // here we use low level API because we need to get perf metrics
-                        WorkerInputEnumerator inputEnumerator = new WorkerInputEnumerator(s, deserializerMode);
-                        IEnumerable<dynamic> inputEnumerable = Enumerable.Cast<dynamic>(inputEnumerator);
                         funcProcessWatch.Start();
-                        IEnumerable<dynamic> outputEnumerable = func(splitIndex, inputEnumerable);
-                        var outputEnumerator = outputEnumerable.GetEnumerator();
+                        bool hasNext = outputEnumerator.MoveNext();
                         funcProcessWatch.Stop();
-                        while (true)
+                        if (!hasNext)
                         {
-                            funcProcessWatch.Start();
-                            bool hasNext = outputEnumerator.MoveNext();
-                            funcProcessWatch.Stop();
-                            if (!hasNext)
-                            {
-                                break;
-                            }
-
-                            funcProcessWatch.Start();
-                            var message = outputEnumerator.Current;
-                            funcProcessWatch.Stop();
-
-                            if (object.ReferenceEquals(null, message))
-                            {
-                                continue;
-                            }
-
-                            byte[] buffer;
-
-                            if (serializerMode == "None")
-                            {
-                                buffer = message as byte[];
-                            }
-                            else if (serializerMode == "String")
-                            {
-                                buffer = SerDe.ToBytes(message as string);
-                            }
-                            else if (serializerMode == "Row")
-                            {
-                                Pickler pickler = new Pickler();
-                                buffer = pickler.dumps(new ArrayList { message });
-                            }
-                            else
-                            {
-                                try
-                                {
-                                    var ms = new MemoryStream();
-                                    formatter.Serialize(ms, message);
-                                    buffer = ms.ToArray();
-                                }
-                                catch (Exception)
-                                {
-                                    logger.LogError(string.Format("{0} : {1}", message.GetType().Name, message.GetType().FullName));
-                                    throw;
-                                }
-                            }
-
-                            count++;
-                            SerDe.Write(s, buffer.Length);
-                            SerDe.Write(s, buffer);
+                            break;
                         }
 
-                        //TODO - complete the impl
-                        logger.LogDebug("Count: " + count);
+                        funcProcessWatch.Start();
+                        var message = outputEnumerator.Current;
+                        funcProcessWatch.Stop();
 
-                        //if profiler:
-                        //    profiler.profile(process)
-                        //else:
-                        //    process()
+                        if (object.ReferenceEquals(null, message))
+                        {
+                            continue;
+                        }
 
-                        DateTime finish_time = DateTime.UtcNow;
-                        const string format = "MM/dd/yyyy hh:mm:ss.fff tt";
-                        logger.LogDebug(string.Format("bootTime: {0}, initTime: {1}, finish_time: {2}",
-                            bootTime.ToString(format), initTime.ToString(format), finish_time.ToString(format)));
-                        SerDe.Write(s, (int)SpecialLengths.TIMING_DATA);
-                        SerDe.Write(s, ToUnixTime(bootTime));
-                        SerDe.Write(s, ToUnixTime(initTime));
-                        SerDe.Write(s, ToUnixTime(finish_time));
+                        byte[] buffer;
 
-                        SerDe.Write(s, 0L); //shuffle.MemoryBytesSpilled  
-                        SerDe.Write(s, 0L); //shuffle.DiskBytesSpilled
+                        if (serializerMode == "None")
+                        {
+                            buffer = message as byte[];
+                        }
+                        else if (serializerMode == "String")
+                        {
+                            buffer = SerDe.ToBytes(message as string);
+                        }
+                        else if (serializerMode == "Row")
+                        {
+                            Pickler pickler = new Pickler();
+                            buffer = pickler.dumps(new ArrayList { message });
+                        }
+                        else
+                        {
+                            try
+                            {
+                                var ms = new MemoryStream();
+                                formatter.Serialize(ms, message);
+                                buffer = ms.ToArray();
+                            }
+                            catch (Exception)
+                            {
+                                logger.LogError(string.Format("{0} : {1}", message.GetType().Name, message.GetType().FullName));
+                                throw;
+                            }
+                        }
 
-                        commandProcessWatch.Stop();
-
-                        // log statistics
-                        inputEnumerator.LogStatistic();
-                        logger.LogInfo(string.Format("func process time: {0}", funcProcessWatch.ElapsedMilliseconds));
-                        logger.LogInfo(string.Format("command process time: {0}", commandProcessWatch.ElapsedMilliseconds));
-                    }
-                    else
-                    {
-                        logger.LogWarn("Nothing to execute :-(");
-                    }
-
-                    // Mark the beginning of the accumulators section of the output
-                    SerDe.Write(s, (int)SpecialLengths.END_OF_DATA_SECTION);
-
-                    SerDe.Write(s, Accumulator.accumulatorRegistry.Count);
-                    foreach (var item in Accumulator.accumulatorRegistry)
-                    {
-                        var ms = new MemoryStream();
-                        var value = item.Value.GetType().GetField("value", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(item.Value);
-                        logger.LogDebug(string.Format("({0}, {1})", item.Key, value));
-                        formatter.Serialize(ms, new KeyValuePair<int, dynamic>(item.Key, value));
-                        byte[] buffer = ms.ToArray();
+                        count++;
                         SerDe.Write(s, buffer.Length);
                         SerDe.Write(s, buffer);
                     }
 
-                    int end = SerDe.ReadInt(s);
+                    //TODO - complete the impl
+                    logger.LogDebug("Count: " + count);
 
-                    // check end of stream
-                    if (end == (int)SpecialLengths.END_OF_STREAM)
-                    {
-                        SerDe.Write(s, (int)SpecialLengths.END_OF_STREAM);
-                        logger.LogDebug("END_OF_STREAM: " + (int)SpecialLengths.END_OF_STREAM);
-                    }
-                    else
-                    {
-                        // write a different value to tell JVM to not reuse this worker
-                        SerDe.Write(s, (int)SpecialLengths.END_OF_DATA_SECTION);
-                        Environment.Exit(-1);
-                    }
-                    s.Flush();
+                    //if profiler:
+                    //    profiler.profile(process)
+                    //else:
+                    //    process()
 
-                    // log bytes read and write
-                    logger.LogDebug(string.Format("total read bytes: {0}", SerDe.totalReadNum));
-                    logger.LogDebug(string.Format("total write bytes: {0}", SerDe.totalWriteNum));
+                    DateTime finish_time = DateTime.UtcNow;
+                    const string format = "MM/dd/yyyy hh:mm:ss.fff tt";
+                    logger.LogDebug(string.Format("bootTime: {0}, initTime: {1}, finish_time: {2}",
+                        bootTime.ToString(format), initTime.ToString(format), finish_time.ToString(format)));
+                    SerDe.Write(s, (int)SpecialLengths.TIMING_DATA);
+                    SerDe.Write(s, ToUnixTime(bootTime));
+                    SerDe.Write(s, ToUnixTime(initTime));
+                    SerDe.Write(s, ToUnixTime(finish_time));
 
-                    // wait for server to complete, otherwise server gets 'connection reset' exception
-                    // Use SerDe.ReadBytes() to detect java side has closed socket properly
-                    // ReadBytes() will block until the socket is closed
-                    SerDe.ReadBytes(s);
+                    SerDe.Write(s, 0L); //shuffle.MemoryBytesSpilled  
+                    SerDe.Write(s, 0L); //shuffle.DiskBytesSpilled
+
+                    commandProcessWatch.Stop();
+
+                    // log statistics
+                    inputEnumerator.LogStatistic();
+                    logger.LogInfo(string.Format("func process time: {0}", funcProcessWatch.ElapsedMilliseconds));
+                    logger.LogInfo(string.Format("command process time: {0}", commandProcessWatch.ElapsedMilliseconds));
                 }
-                catch (Exception e)
+                else
                 {
-                    logger.LogError(e.ToString());
-                    try
-                    {
-                        SerDe.Write(s, e.ToString());
-                    }
-                    catch (IOException)
-                    {
-                        // JVM close the socket
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError("CSharpWorker failed with exception:");
-                        logger.LogException(ex);
-                    }
+                    logger.LogWarn("Nothing to execute :-(");
+                }
+
+                // Mark the beginning of the accumulators section of the output
+                SerDe.Write(s, (int)SpecialLengths.END_OF_DATA_SECTION);
+
+                SerDe.Write(s, Accumulator.accumulatorRegistry.Count);
+                foreach (var item in Accumulator.accumulatorRegistry)
+                {
+                    var ms = new MemoryStream();
+                    var value = item.Value.GetType().GetField("value", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(item.Value);
+                    logger.LogDebug(string.Format("({0}, {1})", item.Key, value));
+                    formatter.Serialize(ms, new KeyValuePair<int, dynamic>(item.Key, value));
+                    byte[] buffer = ms.ToArray();
+                    SerDe.Write(s, buffer.Length);
+                    SerDe.Write(s, buffer);
+                }
+
+                int end = SerDe.ReadInt(s);
+
+                // check end of stream
+                if (end == (int)SpecialLengths.END_OF_STREAM)
+                {
+                    SerDe.Write(s, (int)SpecialLengths.END_OF_STREAM);
+                    logger.LogDebug("END_OF_STREAM: " + (int)SpecialLengths.END_OF_STREAM);
+                }
+                else
+                {
+                    // write a different value to tell JVM to not reuse this worker
+                    SerDe.Write(s, (int)SpecialLengths.END_OF_DATA_SECTION);
                     Environment.Exit(-1);
                 }
-            }
+                s.Flush();
 
-            sock.Close();
+                // log bytes read and write
+                logger.LogDebug(string.Format("total read bytes: {0}", SerDe.totalReadNum));
+                logger.LogDebug(string.Format("total write bytes: {0}", SerDe.totalWriteNum));
+
+                // wait for server to complete, otherwise server gets 'connection reset' exception
+                // Use SerDe.ReadBytes() to detect java side has closed socket properly
+                // ReadBytes() will block until the socket is closed
+                SerDe.ReadBytes(s);
+            }
+            catch (Exception e)
+            {
+                logger.LogError(e.ToString());
+                try
+                {
+                    SerDe.Write(s, e.ToString());
+                }
+                catch (IOException)
+                {
+                    // JVM close the socket
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError("CSharpWorker failed with exception:");
+                    logger.LogException(ex);
+                }
+                Environment.Exit(-1);
+            }
         }
 
         private static void PrintFiles()
