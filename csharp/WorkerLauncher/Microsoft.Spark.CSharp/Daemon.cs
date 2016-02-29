@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using Microsoft.Spark.CSharp.Interop.Ipc;
+using Mono.Posix;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -20,7 +21,7 @@ namespace Microsoft.Spark.CSharp
     public class Daemon
     {
         private static Socket listenSocket;
-        private static int portNumber = 10000;
+        //private static int portNumber = 10000;
 
         static Daemon() 
         {
@@ -60,28 +61,42 @@ namespace Microsoft.Spark.CSharp
 
                     if (listenList.Count > 0)
                     {
+                        StreamWriter w = new StreamWriter("a.txt");
+                        w.WriteLine(Process.GetCurrentProcess().Id);
                         Socket socket = listenList[0].Accept();
-
-                        Process process = new Process();
-                        process.StartInfo.UseShellExecute = false;
-                        string procDir = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetEntryAssembly().Location);
-                        process.StartInfo.FileName = Path.Combine(procDir, "CSharpWorker.exe");
-                        process.StartInfo.Arguments = string.Format("-port {0}", portNumber);
-                        process.Start();
-
-                        SocketInformation sockectInfo = socket.DuplicateAndClose(process.Id);
-
-                        Socket transPortSock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-
-                        transPortSock.Connect(IPAddress.Loopback, portNumber);
-                        using (NetworkStream s = new NetworkStream(transPortSock))
+                        int childPid = Syscall.fork();
+                        if (childPid == 0)
                         {
-                            SerDe.Write(s, sockectInfo.ProtocolInformation);
+                            w.WriteLine("child process");
+                            using (NetworkStream s = new NetworkStream(socket))
+                            {
+                                SerDe.Write(s, Process.GetCurrentProcess().Id);
+                                w.WriteLine(Process.GetCurrentProcess().Id);
+                                w.Close();
+                                Worker.Run(socket);
+                            }
                         }
-                        
-                        transPortSock.Close();
 
-                        portNumber++;
+                        //Process process = new Process();
+                        //process.StartInfo.UseShellExecute = false;
+                        //string procDir = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetEntryAssembly().Location);
+                        //process.StartInfo.FileName = Path.Combine(procDir, "CSharpWorker.exe");
+                        //process.StartInfo.Arguments = string.Format("-port {0}", portNumber);
+                        //process.Start();
+
+                        //SocketInformation sockectInfo = socket.DuplicateAndClose(process.Id);
+
+                        //Socket transPortSock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+                        //transPortSock.Connect(IPAddress.Loopback, portNumber);
+                        //using (NetworkStream s = new NetworkStream(transPortSock))
+                        //{
+                        //    SerDe.Write(s, sockectInfo.ProtocolInformation);
+                        //}
+                        
+                        //transPortSock.Close();
+
+                        //portNumber++;
                     }
                 }
                 catch (SocketException)

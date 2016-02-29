@@ -12,15 +12,11 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
-using System.Text;
 using Microsoft.Spark.CSharp.Core;
 using Microsoft.Spark.CSharp.Interop.Ipc;
 using Microsoft.Spark.CSharp.Services;
 using Microsoft.Spark.CSharp.Sql;
 using Razorvine.Pickle;
-using Razorvine.Pickle.Objects;
-using System.Runtime.Serialization.Json;
-using Mono.Unix;
 
 namespace Microsoft.Spark.CSharp
 {
@@ -38,86 +34,86 @@ namespace Microsoft.Spark.CSharp
        
         static void Main(string[] args)
         {
-            if (args.Length != 2)
-            {
-                Console.WriteLine("the length of args should be 2");
-                Environment.Exit(-1);
-                return;
-            }
+            //if (args.Length != 2)
+            //{
+            //    Console.WriteLine("the length of args should be 2");
+            //    Environment.Exit(-1);
+            //    return;
+            //}
 
-            string firstParamter = args[0].Trim();
-            if (!firstParamter.Equals("-port"))
-            {
-                Console.WriteLine("the first parameter of args should be -port");
-                Environment.Exit(-1);
-                return;
-            }
+            //string firstParamter = args[0].Trim();
+            //if (!firstParamter.Equals("-port"))
+            //{
+            //    Console.WriteLine("the first parameter of args should be -port");
+            //    Environment.Exit(-1);
+            //    return;
+            //}
 
-            string strPort = args[1].Trim();
-            int portNumber = 0 ;
-            if (!int.TryParse(strPort, out portNumber))
-            {
-                Console.WriteLine("the second parameter of args should be an integer");
-                Environment.Exit(-1);
-                return;
-            }
+            //string strPort = args[1].Trim();
+            //int portNumber = 0 ;
+            //if (!int.TryParse(strPort, out portNumber))
+            //{
+            //    Console.WriteLine("the second parameter of args should be an integer");
+            //    Environment.Exit(-1);
+            //    return;
+            //}
 
-            Socket listenSocket = null;
-            Socket clientSocket = null;
-            SocketInformation socketInfo;
-            try
-            {
-                listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                listenSocket.Bind(new IPEndPoint(IPAddress.Loopback, portNumber));
-                listenSocket.Listen(5);
-                clientSocket = listenSocket.Accept();
+            //Socket listenSocket = null;
+            //Socket clientSocket = null;
+            //SocketInformation socketInfo;
+            //try
+            //{
+            //    listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            //    listenSocket.Bind(new IPEndPoint(IPAddress.Loopback, portNumber));
+            //    listenSocket.Listen(5);
+            //    clientSocket = listenSocket.Accept();
               
-                // receive protocolinfo of the duplicated socket
-                byte[] recvBytes = new byte[10000];
-                int count = 0;
-                using (NetworkStream s = new NetworkStream(clientSocket))
-                {
-                    count = s.Read(recvBytes, 0, 10000);
-                }
+            //    // receive protocolinfo of the duplicated socket
+            //    byte[] recvBytes = new byte[10000];
+            //    int count = 0;
+            //    using (NetworkStream s = new NetworkStream(clientSocket))
+            //    {
+            //        count = s.Read(recvBytes, 0, 10000);
+            //    }
                 
-                socketInfo = new SocketInformation();
-                byte[] protocolInfo = new byte[count];
-                Array.Copy(recvBytes, protocolInfo, count);
-                socketInfo.ProtocolInformation = protocolInfo;
-                socketInfo.Options = SocketInformationOptions.Connected;
-            }
-            finally
-            {
-                if (clientSocket != null)
-                {
-                    clientSocket.Close();
-                }
+            //    socketInfo = new SocketInformation();
+            //    byte[] protocolInfo = new byte[count];
+            //    Array.Copy(recvBytes, protocolInfo, count);
+            //    socketInfo.ProtocolInformation = protocolInfo;
+            //    socketInfo.Options = SocketInformationOptions.Connected;
+            //}
+            //finally
+            //{
+            //    if (clientSocket != null)
+            //    {
+            //        clientSocket.Close();
+            //    }
 
-                if (listenSocket != null)
-                {
-                    listenSocket.Close();
-                }
-            }
+            //    if (listenSocket != null)
+            //    {
+            //        listenSocket.Close();
+            //    }
+            //}
 
-            try
-            {
-                Socket socket = new Socket(socketInfo);
-                // Acknowledge that the fork was successful
-                using (UnixStream s = new UnixStream((int)socket.Handle))
-                {
-                    SerDe.Write(s, Process.GetCurrentProcess().Id);
-                    DoExecute(s);
-                }
-            }
-            catch (Exception e)
-            {
-                StreamWriter w = new StreamWriter(@"D:\a.txt");
-                w.Write(e.ToString());
-                w.Close();
-            }
+            //try
+            //{
+            //    Socket socket = new Socket(socketInfo);
+            //    // Acknowledge that the fork was successful
+            //    using (UnixStream s = new UnixStream(socket.Handle.ToInt32()))
+            //    {
+            //        SerDe.Write(s, Process.GetCurrentProcess().Id);
+            //        DoExecute(s);
+            //    }
+            //}
+            //catch (Exception e)
+            //{
+            //    StreamWriter w = new StreamWriter(@"D:\a.txt");
+            //    w.Write(e.ToString());
+            //    w.Close();
+            //}
         }
 
-        public static void Run()
+        public static void Run(Socket sock = null)
         {
             // if there exists exe.config file, then use log4net
             if (File.Exists(AppDomain.CurrentDomain.SetupInformation.ConfigurationFile))
@@ -126,14 +122,17 @@ namespace Microsoft.Spark.CSharp
             }
 
             logger = LoggerServiceFactory.GetLogger(typeof(Worker));
-            Socket sock = null;
+
             try
             {
                 PrintFiles();
-                int javaPort = int.Parse(Console.ReadLine());
-                logger.LogDebug("java_port: " + javaPort);
-                sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                sock.Connect(IPAddress.Loopback, javaPort);
+                if (sock == null)
+                {
+                    int javaPort = int.Parse(Console.ReadLine());
+                    logger.LogDebug("java_port: " + javaPort);
+                    sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    sock.Connect(IPAddress.Loopback, javaPort);
+                }
 
                 using (NetworkStream s = new NetworkStream(sock))
                 {
@@ -156,7 +155,7 @@ namespace Microsoft.Spark.CSharp
             }
         }
 
-        private static void DoExecute(Stream s)
+        public static void DoExecute(Stream s)
         {
             try
             {
