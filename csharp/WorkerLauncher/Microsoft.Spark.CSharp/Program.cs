@@ -48,7 +48,7 @@ namespace Microsoft.Spark.CSharp
 
             if (runMode.Equals(PYSPARK_WORKER_NAME))
             {
-                Worker.Run();
+               Worker.Run();
             }
             else
             {

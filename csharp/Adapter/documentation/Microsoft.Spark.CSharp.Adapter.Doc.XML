@@ -2188,6 +2188,11 @@
             Extend method to sort items in a JSON array by keys.
             </summary>
         </member>
+        <member name="T:Microsoft.Spark.CSharp.Interop.Ipc.JvmBridgeUtils">
+            <summary>
+            Utility methods for C#-JVM interaction
+            </summary>
+        </member>
         <member name="T:Microsoft.Spark.CSharp.Interop.SparkCLREnvironment">
             <summary>
             Contains everything needed to setup an environment for using C# with Spark
@@ -2281,6 +2286,13 @@
             <param name="columns"></param>
             <returns></returns>
         </member>
+        <member name="M:Microsoft.Spark.CSharp.Proxy.Ipc.DataFrameIpcProxy.SortWithinPartitions(Microsoft.Spark.CSharp.Proxy.IColumnProxy[])">
+            <summary>
+            Call https://github.com/apache/spark/blob/branch-1.6/sql/core/src/main/scala/org/apache/spark/sql/DataFrame.scala, sortWithinPartitions(sortExprs: Column*): DataFrame
+            </summary>
+            <param name="columns"></param>
+            <returns></returns>
+        </member>
         <member name="M:Microsoft.Spark.CSharp.Proxy.Ipc.DataFrameIpcProxy.Alias(System.String)">
             <summary>
             Call https://github.com/apache/spark/blob/branch-1.4/sql/core/src/main/scala/org/apache/spark/sql/DataFrame.scala, as(alias: String): DataFrame
@@ -2319,6 +2331,21 @@
             </summary>
             <param name="column1"></param>
             <param name="column2"></param>
+            <returns></returns>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Proxy.Ipc.DataFrameIpcProxy.Repartition(System.Int32,Microsoft.Spark.CSharp.Proxy.IColumnProxy[])">
+            <summary>
+            Call https://github.com/apache/spark/blob/branch-1.6/sql/core/src/main/scala/org/apache/spark/sql/DataFrame.scala, repartition(numPartitions: Int, partitionExprs: Column*): DataFrame
+            </summary>
+            <param name="numPartitions"></param>
+            <param name="columns"></param>
+            <returns></returns>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Proxy.Ipc.DataFrameIpcProxy.Repartition(Microsoft.Spark.CSharp.Proxy.IColumnProxy[])">
+            <summary>
+            Call https://github.com/apache/spark/blob/branch-1.6/sql/core/src/main/scala/org/apache/spark/sql/DataFrame.scala, repartition(partitionExprs: Column*): DataFrame
+            </summary>
+            <param name="columns"></param>
             <returns></returns>
         </member>
         <member name="T:Microsoft.Spark.CSharp.Proxy.Ipc.DStreamIpcProxy">
@@ -2722,6 +2749,26 @@
             if not null, it will overwrite the order specified by Column.Asc() or Column Desc() in <paramref name="columns"/>, </param>
             <returns>A new DataFrame sorted by the specified column(s)</returns>
         </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.DataFrame.SortWithinPartitions(System.String[],System.Boolean[])">
+            <summary>
+            Returns a new DataFrame sorted by the specified column(s).
+            Reference to https://github.com/apache/spark/blob/branch-1.6/python/pyspark/sql/dataframe.py, sortWithinPartitions(self, *cols, **kwargs)
+            </summary>
+            <param name="columns">List of Columns to sort by</param>
+            <param name="ascending">List of boolean to specify multiple sort orders for <paramref name="columns"/>, TRUE for ascending, FALSE for descending.
+            if not null, it will overwrite the order specified by Column.Asc() or Column Desc() in <paramref name="columns"/>, </param>
+            <returns>A new DataFrame sorted by the specified column(s)</returns>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.DataFrame.SortWithinPartition(Microsoft.Spark.CSharp.Sql.Column[],System.Boolean[])">
+            <summary>
+            Returns a new DataFrame sorted by the specified column(s).
+            Reference to https://github.com/apache/spark/blob/branch-1.6/python/pyspark/sql/dataframe.py, sortWithinPartitions(self, *cols, **kwargs)
+            </summary>
+            <param name="columns">List of Columns to sort by</param>
+            <param name="ascending">List of boolean to specify multiple sort orders for <paramref name="columns"/>, TRUE for ascending, FALSE for descending.
+            if not null, it will overwrite the order specified by Column.Asc() or Column Desc() in <paramref name="columns"/>, </param>
+            <returns>A new DataFrame sorted by the specified column(s)</returns>
+        </member>
         <member name="M:Microsoft.Spark.CSharp.Sql.DataFrame.Alias(System.String)">
             <summary>
             Returns a new DataFrame with an alias set.
@@ -2854,6 +2901,20 @@
         <member name="M:Microsoft.Spark.CSharp.Sql.DataFrame.Repartition(System.Int32)">
             <summary>
             Returns a new DataFrame that has exactly `numPartitions` partitions.
+            </summary>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.DataFrame.Repartition(System.String[],System.Int32)">
+            <summary>
+            Returns a new [[DataFrame]] partitioned by the given partitioning columns into <paramref name="numPartitions"/>. The resulting DataFrame is hash partitioned.
+            <param name="columns"></param>
+            <param name="numPartitions">optional. If not specified, keep current partitions.</param>
+            </summary>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.DataFrame.Repartition(Microsoft.Spark.CSharp.Sql.Column[],System.Int32)">
+            <summary>
+            Returns a new [[DataFrame]] partitioned by the given partitioning columns into <paramref name="numPartitions"/>. The resulting DataFrame is hash partitioned.
+            <param name="columns"></param>
+            <param name="numPartitions">optional. If not specified, keep current partitions.</param>
             </summary>
         </member>
         <member name="M:Microsoft.Spark.CSharp.Sql.DataFrame.Sample(System.Boolean,System.Double,System.Nullable{System.Int64})">
@@ -3396,6 +3457,42 @@
             Allows the creation of [[DataFrame]] objects as well as the execution of SQL queries.
             </summary>
         </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.#ctor(Microsoft.Spark.CSharp.Core.SparkContext)">
+            <summary>
+            Creates a SqlContext
+            </summary>
+            <param name="sparkContext"></param>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.GetOrCreate(Microsoft.Spark.CSharp.Core.SparkContext)">
+            <summary>
+            Get the existing SQLContext or create a new one with given SparkContext.
+            </summary>
+            <param name="sparkContext"></param>
+            <returns></returns>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.NewSession">
+            <summary>
+            Returns a new SQLContext as new session, that has separate SQLConf, 
+            registered temporary tables and UDFs, but shared SparkContext and table cache.
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.GetConf(System.String,System.String)">
+            <summary>
+            Returns the value of Spark SQL configuration property for the given key.
+            If the key is not set, returns defaultValue.
+            </summary>
+            <param name="key"></param>
+            <param name="defaultValue"></param>
+            <returns></returns>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.SetConf(System.String,System.String)">
+            <summary>
+            Sets the given Spark SQL configuration property.
+            </summary>
+            <param name="key"></param>
+            <param name="value"></param>
+        </member>
         <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.Read">
             <summary>
             Returns a DataFrameReader that can be used to read data in as a DataFrame.
@@ -3408,6 +3505,78 @@
             <param name="path"></param>
             <param name="schema"></param>
             <param name="options"></param>
+            <returns></returns>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.CreateDataFrame(Microsoft.Spark.CSharp.Core.RDD{System.Object[]},Microsoft.Spark.CSharp.Sql.StructType)">
+            <summary>
+            Creates a <see cref="T:Microsoft.Spark.CSharp.Sql.DataFrame"/> from a RDD containing array of object using the given schema.
+            </summary>
+            <param name="rdd">RDD containing array of object. The array acts as a row and items within the array act as columns which the schema is specified in <paramref name="schema"/>. </param>
+            <param name="schema">The schema of DataFrame.</param>
+            <returns></returns>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.RegisterDataFrameAsTable(Microsoft.Spark.CSharp.Sql.DataFrame,System.String)">
+            <summary>
+            Registers the given <see cref="T:Microsoft.Spark.CSharp.Sql.DataFrame"/> as a temporary table in the catalog.
+            Temporary tables exist only during the lifetime of this instance of SqlContext.
+            </summary>
+            <param name="dataFrame"></param>
+            <param name="tableName"></param>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.DropTempTable(System.String)">
+            <summary>
+            Remove the temp table from catalog.
+            </summary>
+            <param name="tableName"></param>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.Table(System.String)">
+            <summary>
+            Returns the specified table as a <see cref="T:Microsoft.Spark.CSharp.Sql.DataFrame"/>
+            </summary>
+            <param name="tableName"></param>
+            <returns></returns>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.Tables(System.String)">
+            <summary>
+            Returns a <see cref="T:Microsoft.Spark.CSharp.Sql.DataFrame"/> containing names of tables in the given database.
+            If <paramref name="databaseName"/> is not specified, the current database will be used.
+            The returned DataFrame has two columns: 'tableName' and 'isTemporary' (a column with bool 
+            type indicating if a table is a temporary one or not).
+            </summary>
+            <param name="databaseName">Name of the database to use. Default to the current database. 
+            Note: This is only applicable to HiveContext.</param>
+            <returns></returns>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.TableNames(System.String)">
+            <summary>
+            Returns a list of names of tables in the database <paramref name="databaseName"/>
+            </summary>
+            <param name="databaseName">Name of the database to use. Default to the current database.
+            Note: This is only applicable to HiveContext.</param>
+            <returns></returns>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.CacheTable(System.String)">
+            <summary>
+            Caches the specified table in-memory.
+            </summary>
+            <param name="tableName"></param>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.UncacheTable(System.String)">
+            <summary>
+            Removes the specified table from the in-memory cache.
+            </summary>
+            <param name="tableName"></param>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.ClearCache">
+            <summary>
+            Removes all cached tables from the in-memory cache.
+            </summary>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.IsCached(System.String)">
+            <summary>
+            Returns true if the table is currently cached in-memory.
+            </summary>
+            <param name="tableName"></param>
             <returns></returns>
         </member>
         <member name="M:Microsoft.Spark.CSharp.Sql.SqlContext.Sql(System.String)">
@@ -3787,6 +3956,36 @@
             for execution, it is necessary to have the type marked [Serializable]. These classes are to work around the limitation
             on the serializability of compiler generated types
             </summary>
+        </member>
+        <member name="T:Microsoft.Spark.CSharp.Streaming.EventHubsUtils">
+            <summary>
+            Utility for creating streams from 
+            </summary>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Streaming.EventHubsUtils.CreateUnionStream(Microsoft.Spark.CSharp.Streaming.StreamingContext,System.Collections.Generic.Dictionary{System.String,System.String},Microsoft.Spark.CSharp.Core.StorageLevelType)">
+             <summary>
+             Create a unioned EventHubs stream that receives data from Microsoft Azure Eventhubs
+             The unioned stream will receive message from all partitions of the EventHubs
+             </summary>
+             <param name="ssc">Streaming context</param>
+             <param name="eventhubsParams"> Parameters for EventHubs.
+              Required parameters are:
+              "eventhubs.policyname": EventHubs policy name
+              "eventhubs.policykey": EventHubs policy key
+              "eventhubs.namespace": EventHubs namespace
+              "eventhubs.name": EventHubs name
+              "eventhubs.partition.count": Number of partitions
+              "eventhubs.checkpoint.dir": checkpoint directory on HDFS
+            
+              Optional parameters are:
+              "eventhubs.consumergroup": EventHubs consumer group name, default to "\$default"
+              "eventhubs.filter.offset": Starting offset of EventHubs, default to "-1"
+              "eventhubs.filter.enqueuetime": Unix time, millisecond since epoch, default to "0"
+              "eventhubs.default.credits": default AMQP credits, default to -1 (which is 1024)
+              "eventhubs.checkpoint.interval": checkpoint interval in second, default to 10
+             </param>
+             <param name="storageLevelType">Storage level, by default it is MEMORY_ONLY</param>
+             <returns>DStream with byte[] representing events from EventHub</returns>
         </member>
         <member name="M:Microsoft.Spark.CSharp.Streaming.KafkaUtils.CreateStream(Microsoft.Spark.CSharp.Streaming.StreamingContext,System.String,System.String,System.Collections.Generic.Dictionary{System.String,System.Int32},System.Collections.Generic.Dictionary{System.String,System.String})">
             <summary>

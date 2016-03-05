@@ -95,6 +95,13 @@ namespace Microsoft.Spark.CSharp
                 }
             }
 
+            string envVar = Environment.GetEnvironmentVariable("SPARK_REUSE_WORKER"); // this envVar is set in JVM side
+            bool sparkReuseWorker = false;
+            if ((envVar != null) && envVar.Equals("1"))
+            {
+                sparkReuseWorker = true;
+            }
+
             Socket socket = new Socket(socketInfo);
 
             // Acknowledge that the fork was successful
@@ -103,10 +110,32 @@ namespace Microsoft.Spark.CSharp
                 SerDe.Write(s, Process.GetCurrentProcess().Id);
             }
 
-            Run(socket);
+            while (true)
+            {
+                int exitcode = Run(socket);
+                if (!sparkReuseWorker || exitcode == -1)
+                {
+                    break;
+                }
+            }
+            
+            // wait for server to complete, otherwise server gets 'connection reset' exception
+            // Use SerDe.ReadBytes() to detect java side has closed socket properly
+            // ReadBytes() will block until the socket is closed
+            using (NetworkStream s = new NetworkStream(socket))
+            {
+                logger.LogInfo("ReadBytes begin");
+                SerDe.ReadBytes(s);
+                logger.LogInfo("ReadBytes end");
+            }
+
+            if (socket != null)
+            {
+                socket.Close();
+            }
         }
 
-        public static void Run(Socket sock = null)
+        public static int Run(Socket sock = null)
         {
             // if there exists exe.config file, then use log4net
             if (File.Exists(AppDomain.CurrentDomain.SetupInformation.ConfigurationFile))
@@ -223,9 +252,9 @@ namespace Microsoft.Spark.CSharp
 
                         var workerFunc = (CSharpWorkerFunc)formatter.Deserialize(stream);
                         var func = workerFunc.Func;
-                        logger.LogDebug("------------------------ Printing stack trace of workerFunc for ** debugging ** ------------------------------");
-                        logger.LogDebug(workerFunc.StackTrace);
-                        logger.LogDebug("--------------------------------------------------------------------------------------------------------------");
+                        //logger.LogDebug("------------------------ Printing stack trace of workerFunc for ** debugging ** ------------------------------");
+                        //logger.LogDebug(workerFunc.StackTrace);
+                        //logger.LogDebug("--------------------------------------------------------------------------------------------------------------");
                         DateTime initTime = DateTime.UtcNow;
                         int count = 0;
 
@@ -256,7 +285,6 @@ namespace Microsoft.Spark.CSharp
                             }
 
                             byte[] buffer;
-
                             switch ((SerializedMode)Enum.Parse(typeof(SerializedMode), serializerMode))
                             {
                                 case SerializedMode.None:
@@ -282,6 +310,8 @@ namespace Microsoft.Spark.CSharp
                                     catch (Exception)
                                     {
                                         logger.LogError("Exception serializing output");
+                                        logger.LogError("{0} : {1}", message.GetType().Name, message.GetType().FullName);
+
                                         throw;
                                     }
                                     break;
@@ -294,7 +324,6 @@ namespace Microsoft.Spark.CSharp
 
                         //TODO - complete the impl
                         logger.LogDebug("Output entries count: " + count);
-
                         //if profiler:
                         //    profiler.profile(process)
                         //else:
@@ -358,11 +387,6 @@ namespace Microsoft.Spark.CSharp
                     // log bytes read and write
                     logger.LogDebug(string.Format("total read bytes: {0}", SerDe.totalReadNum));
                     logger.LogDebug(string.Format("total write bytes: {0}", SerDe.totalWriteNum));
-
-                    // wait for server to complete, otherwise server gets 'connection reset' exception
-                    // Use SerDe.ReadBytes() to detect java side has closed socket properly
-                    // ReadBytes() will block until the socket is closed
-                    SerDe.ReadBytes(s);
                 }
                 catch (Exception e)
                 {
@@ -381,11 +405,11 @@ namespace Microsoft.Spark.CSharp
                         logger.LogException(ex);
                     }
                     Environment.Exit(-1);
+                    return -1;
                 }
+
+                return 0;
             }
-
-            sock.Close();
-
         }
 
         private static void PrintFiles()
@@ -489,9 +513,9 @@ namespace Microsoft.Spark.CSharp
         private object[] GetNext(int messageLength)
         {
             object[] result = null;
-            switch (deserializedMode)
+            switch ((SerializedMode)Enum.Parse(typeof(SerializedMode), deserializedMode))
             {
-                case "String":
+                case SerializedMode.String:
                     {
                         result = new object[1];
                         if (messageLength > 0)
@@ -506,7 +530,7 @@ namespace Microsoft.Spark.CSharp
                         break;
                     }
 
-                case "Row":
+                case SerializedMode.Row:
                     {
                         Debug.Assert(messageLength > 0);
                         byte[] buffer = SerDe.ReadBytes(inputStream, messageLength);
@@ -516,7 +540,7 @@ namespace Microsoft.Spark.CSharp
                         break;
                     }
 
-                case "Pair":
+                case SerializedMode.Pair:
                     {
                         byte[] pairKey = (messageLength > 0) ? SerDe.ReadBytes(inputStream, messageLength) : null;
                         byte[] pairValue = null;
@@ -540,7 +564,21 @@ namespace Microsoft.Spark.CSharp
                         break;
                     }
 
-                case "Byte":
+                case SerializedMode.None: //just read raw bytes
+                    {
+                        result = new object[1];
+                        if (messageLength > 0)
+                        {
+                            result[0] = SerDe.ReadBytes(inputStream, messageLength);
+                        }
+                        else
+                        {
+                            result[0] = null;
+                        }
+                        break;
+                    }
+
+                case SerializedMode.Byte:
                 default:
                     {
                         result = new object[1];

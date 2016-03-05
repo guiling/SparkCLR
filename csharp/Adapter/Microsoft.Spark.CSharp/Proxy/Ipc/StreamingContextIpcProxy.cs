@@ -26,7 +26,7 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
     [ExcludeFromCodeCoverage] //IPC calls to JVM validated using validation-enabled samples - unit test coverage not reqiured
     internal class StreamingContextIpcProxy : IStreamingContextProxy
     {
-        private readonly ILoggerService logger = LoggerServiceFactory.GetLogger(typeof(SparkConf));
+        private readonly ILoggerService logger = LoggerServiceFactory.GetLogger(typeof(StreamingContextIpcProxy));
         internal readonly JvmObjectReference jvmStreamingContextReference;
         private readonly JvmObjectReference jvmJavaStreamingReference;
         private readonly ISparkContextProxy sparkContextProxy;
@@ -52,6 +52,8 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
             JvmObjectReference jvmSparkContextReference = (sparkContextProxy as SparkContextIpcProxy).JvmSparkContextReference;
             jvmStreamingContextReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.StreamingContext", new object[] { jvmSparkContextReference, jduration });
             jvmJavaStreamingReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.api.java.JavaStreamingContext", new object[] { jvmStreamingContextReference });
+
+            StartAccumulatorServer(sparkContext);
         }
         
         public StreamingContextIpcProxy(string checkpointPath)
@@ -64,14 +66,19 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
             sparkContextProxy = new SparkContextIpcProxy(jvmSparkContextReference, jvmJavaContextReference);
             var sparkConfProxy = new SparkConfIpcProxy(jvmSparkConfReference);
             sparkContext = new SparkContext(sparkContextProxy, new SparkConf(sparkConfProxy));
+            StartAccumulatorServer(sparkContext);
+        }
 
+        private void StartAccumulatorServer(SparkContext sparkContext)
+        {
             // TODO: We don't know whether accumulator variable is used before restart. We just start accumuator server for safety.
             sparkContext.StartAccumulatorServer();
         }
 
         public void Start()
         {
-            int port = StartCallback();
+            int port = StartCallbackServer();
+            logger.LogInfo("Callback server port number is {0}", port);
             SparkCLRIpcProxy.JvmBridge.CallStaticJavaMethod("SparkCLRHandler", "connectCallback", port); //className and methodName hardcoded in CSharpBackendHandler
             SparkCLRIpcProxy.JvmBridge.CallNonStaticJavaMethod(jvmStreamingContextReference, "start");
         }
@@ -119,8 +126,8 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
 
         public IDStreamProxy CreateCSharpReducedWindowedDStream(IDStreamProxy jdstream, byte[] func, byte[] invFunc, int windowSeconds, int slideSeconds, string serializationMode)
         {
-            var windowDurationReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.Duration", new object[] { windowSeconds * 1000 });
-            var slideDurationReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.Duration", new object[] { slideSeconds * 1000 });
+            var windowDurationReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.Duration", new object[] { (long) windowSeconds * 1000 });
+            var slideDurationReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.Duration", new object[] { (long) slideSeconds * 1000 });
 
             var jvmDStreamReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.api.csharp.CSharpReducedWindowedDStream",
                 new object[] { (jdstream as DStreamIpcProxy).jvmDStreamReference, func, invFunc, windowDurationReference, slideDurationReference, serializationMode });
@@ -153,8 +160,8 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
 
         public IDStreamProxy KafkaStream(Dictionary<string, int> topics, Dictionary<string, string> kafkaParams, StorageLevelType storageLevelType)
         {
-            JvmObjectReference jtopics = SparkContextIpcProxy.GetJavaMap<string, int>(topics);
-            JvmObjectReference jkafkaParams = SparkContextIpcProxy.GetJavaMap<string, string>(kafkaParams);
+            JvmObjectReference jtopics = JvmBridgeUtils.GetJavaMap<string, int>(topics);
+            JvmObjectReference jkafkaParams = JvmBridgeUtils.GetJavaMap<string, string>(kafkaParams);
             JvmObjectReference jlevel = SparkContextIpcProxy.GetJavaStorageLevel(storageLevelType);
             // KafkaUtilsPythonHelper: external/kafka/src/main/scala/org/apache/spark/streaming/kafka/KafkaUtils.scala
             JvmObjectReference jhelper = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.kafka.KafkaUtilsPythonHelper", new object[] { });
@@ -164,8 +171,8 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
         
         public IDStreamProxy DirectKafkaStream(List<string> topics, Dictionary<string, string> kafkaParams, Dictionary<string, long> fromOffsets)
         {
-            JvmObjectReference jtopics = SparkContextIpcProxy.GetJavaSet<string>(topics);
-            JvmObjectReference jkafkaParams = SparkContextIpcProxy.GetJavaMap<string, string>(kafkaParams);
+            JvmObjectReference jtopics = JvmBridgeUtils.GetJavaSet<string>(topics);
+            JvmObjectReference jkafkaParams = JvmBridgeUtils.GetJavaMap<string, string>(kafkaParams);
 
             var jTopicAndPartitions = fromOffsets.Select(x =>
                 new KeyValuePair<JvmObjectReference, long>
@@ -175,13 +182,26 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
                 )
             );
 
-            JvmObjectReference jfromOffsets = SparkContextIpcProxy.GetJavaMap<JvmObjectReference, long>(jTopicAndPartitions);
+            JvmObjectReference jfromOffsets = JvmBridgeUtils.GetJavaMap<JvmObjectReference, long>(jTopicAndPartitions);
             // KafkaUtilsPythonHelper: external/kafka/src/main/scala/org/apache/spark/streaming/kafka/KafkaUtils.scala
             JvmObjectReference jhelper = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.kafka.KafkaUtilsPythonHelper", new object[] { });
             var jstream = new JvmObjectReference(SparkCLRIpcProxy.JvmBridge.CallNonStaticJavaMethod(jhelper, "createDirectStreamWithoutMessageHandler", new object[] { jvmJavaStreamingReference, jkafkaParams, jtopics, jfromOffsets }).ToString());
             return new DStreamIpcProxy(jstream);
         }
-        
+
+        public IDStreamProxy EventHubsUnionStream(Dictionary<string, string> eventHubsParams, StorageLevelType storageLevelType)
+        {
+            JvmObjectReference eventHubsParamsReference = JvmBridgeUtils.GetScalaMutableMap<string, string>(eventHubsParams);
+            JvmObjectReference storageLevelTypeReference = SparkContextIpcProxy.GetJavaStorageLevel(storageLevelType);
+            return
+                new DStreamIpcProxy(
+                    new JvmObjectReference(
+                        SparkCLRIpcProxy.JvmBridge.CallStaticJavaMethod(
+                            "org.apache.spark.streaming.api.csharp.EventHubsUtils", "createUnionStream",
+                            new object[] { jvmJavaStreamingReference, eventHubsParamsReference, storageLevelTypeReference })
+                            .ToString()));
+        }
+
         public IDStreamProxy Union(IDStreamProxy firstDStream, IDStreamProxy[] otherDStreams)
         {
             return new DStreamIpcProxy(
@@ -190,7 +210,7 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
                         new object[] 
                         { 
                             (firstDStream as DStreamIpcProxy).javaDStreamReference,
-                            SparkContextIpcProxy.GetJavaList<JvmObjectReference>(otherDStreams.Select(x => (x as DStreamIpcProxy).javaDStreamReference))
+                            JvmBridgeUtils.GetJavaList<JvmObjectReference>(otherDStreams.Select(x => (x as DStreamIpcProxy).javaDStreamReference))
                         }
                     )));
         }
@@ -207,7 +227,7 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
 
         private void ProcessCallbackRequest(object socket)
         {
-            logger.LogDebug("new thread created to process callback request");
+            logger.LogDebug("New thread (id={0}) created to process callback request", Thread.CurrentThread.ManagedThreadId);
 
             try
             {
@@ -268,6 +288,7 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
                             //log exception only when callback socket is not shutdown explicitly
                             if (!callbackSocketShutdown)
                             {
+                                logger.LogError("Exception processing call back request. Thread id {0}", Thread.CurrentThread.ManagedThreadId);
                                 logger.LogException(e);
 
                                 // exit when exception happens
@@ -281,13 +302,14 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
             }
             catch (Exception e)
             {
+                logger.LogError("Exception in callback. Thread id {0}", Thread.CurrentThread.ManagedThreadId);
                 logger.LogException(e);
             }
 
-            logger.LogDebug("thread to process callback request exit");
+            logger.LogDebug("Thread (id={0}) to process callback request exiting", Thread.CurrentThread.ManagedThreadId);
         }
 
-        public int StartCallback()
+        private int StartCallbackServer()
         {
             TcpListener callbackServer = new TcpListener(IPAddress.Loopback, 0);
             callbackServer.Start();
@@ -300,11 +322,12 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
                     while (!callbackSocketShutdown)
                     {
                         Socket sock = callbackServer.AcceptSocket();
-                        ThreadPool.QueueUserWorkItem(new WaitCallback(ProcessCallbackRequest), sock);
+                        ThreadPool.QueueUserWorkItem(ProcessCallbackRequest, sock);
                     }
                 }
                 catch (Exception e)
                 {
+                    logger.LogError("Exception starting callback server");
                     logger.LogException(e);
                     throw;
                 }
